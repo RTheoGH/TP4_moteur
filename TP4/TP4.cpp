@@ -27,14 +27,14 @@ using namespace glm;
 #include <common/objloader.hpp>
 #include <common/vboindexer.hpp>
 
-void processInput(GLFWwindow *window);
+
 
 // settings
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
 // camera
-glm::vec3 camera_position   = glm::vec3(0.0f, 0.0f, 10.0f);
+glm::vec3 camera_position   = glm::vec3(0.0f, 2.0f, 10.0f);
 glm::vec3 camera_target = glm::vec3(0.0f, 0.0f, -1.0f);
 glm::vec3 camera_up    = glm::vec3(0.0f, 1.0f,  0.0f);
 
@@ -44,7 +44,7 @@ glm::vec3 camera_up    = glm::vec3(0.0f, 1.0f,  0.0f);
 float deltaTime = 0.0f;	// time between current frame and last frame
 float lastFrame = 0.0f;
 
-int sommets = 16;
+int sommets = 32;
 const int MIN_SOMMETS = 4;
 const int MAX_SOMMETS = 248;
 bool scaleT = false;
@@ -106,6 +106,55 @@ void calculateUVSphere(std::vector<glm::vec3>& vertices,std::vector<glm::vec2>& 
     }
 }
 
+void plan(std::vector<glm::vec3> &vertices,std::vector<glm::vec2> &uvs,std::vector<unsigned short> &indices){
+    float taille = 10.0f;
+    float m = taille / 2.0f;
+    float pas = taille / (float)sommets;
+
+    for(int i = 0; i <= sommets; i++){
+        for(int j = 0; j <= sommets; j++){
+            float x = -m + j * pas;
+            float z = -m + i * pas;
+
+            vertices.emplace_back(glm::vec3(x,0.0f,z));
+
+            float u = (float)j / (float)(sommets-1);
+            float v = (float)i / (float)(sommets-1);
+
+            uvs.emplace_back(glm::vec2(u,v));
+        }
+    }
+
+    for(int i = 0; i < sommets-1; i++){
+        for(int j = 0; j < sommets-1; j++){
+            int topleft = i * (sommets+1) + j;
+            int topright = topleft + 1;
+            int bottomleft = (i+1) * (sommets+1) + j;
+            int bottomright = bottomleft + 1;
+
+            indices.push_back(topleft);
+            indices.push_back(bottomleft);
+            indices.push_back(topright);
+
+            indices.push_back(topright);
+            indices.push_back(bottomleft);
+            indices.push_back(bottomright);
+        }
+    }
+}
+
+float getTerrainHeight(float x, float z, unsigned char* heightmapData, int width, int height){
+    // float u = (x + 1.0f) / 10.0f;
+    // float v = (z + 1.0f) / 10.0f;
+
+    int texX = static_cast<int>(x * (width/102.4 - 1));
+    int texY = static_cast<int>(z * (height/102.4 - 1));
+
+    unsigned char heightValue = heightmapData[texY * width + texX];
+    return static_cast<float>(heightValue) / 255.0f * 2.0f;
+}
+
+
 /*******************************************************************************/
 
 class Transform{
@@ -132,17 +181,21 @@ public:
     std::vector<std::shared_ptr<SNode>> feuilles;
     GLuint vao,vbo,ibo,textureID;
     size_t indexCPT;
-    // glm::vec3 color;
+    glm::vec3 color;
+    int type_objet;
+    glm::vec3 rayon;
 
-    SNode(const char* texturePath) {
+    SNode(int obj,const char* texturePath) {
+        type_objet = obj;
         buffers();
         textureID = loadTexture(texturePath);
     }
 
     // Ancienne version sans texture (couleur)
-    // SNode(glm::vec3 nodeColor) : color(nodeColor) {
-    //     buffers();
-    // }
+    SNode(int obj, glm::vec3 nodeColor) : color(nodeColor) {
+        type_objet = obj;
+        buffers();
+    }
 
     SNode(){}
 
@@ -152,9 +205,16 @@ public:
         std::vector<glm::vec2> uvs;
         std::vector<unsigned short> indices;
         std::vector<std::vector<unsigned short>> triangles;
-        loadOFF("modeles/sphere2.off",vertices,indices,triangles);
-
-        calculateUVSphere(vertices, uvs);
+        switch(type_objet) {
+            case 1:
+                plan(vertices,uvs,indices);
+                break;
+            default:
+                loadOFF("modeles/sphere2.off",vertices,indices,triangles);
+                rayon = vertices[0];
+                calculateUVSphere(vertices, uvs);
+                break;
+        }
 
         glGenVertexArrays(1, &vao);
         glBindVertexArray(vao);
@@ -204,9 +264,16 @@ public:
         MVP = ProjectionMatrix*ViewMatrix*ModelMatrix;
         glUniformMatrix4fv(MatrixID,1,GL_FALSE,&MVP[0][0]);
 
+        GLuint isTerrainID = glGetUniformLocation(shaderProgram, "isTerrain");
+        if (type_objet == 1) {
+            glUniform1i(isTerrainID, 1);
+        } else {
+            glUniform1i(isTerrainID, 0);
+        }
+
         // Ancienne version sans texture (couleur)
-        // GLuint colorLocation = glGetUniformLocation(shaderProgram, "objColor");
-        // glUniform3fv(colorLocation, 1, &color[0]);
+        GLuint colorLocation = glGetUniformLocation(shaderProgram, "objColor");
+        glUniform3fv(colorLocation, 1, &color[0]);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureID);
@@ -257,6 +324,8 @@ public:
 
 /*******************************************************************************/
 
+void processInput(GLFWwindow *window,std::shared_ptr<SNode> soleil);
+
 int main( void ){
     // Initialise GLFW
     if( !glfwInit() )
@@ -301,8 +370,8 @@ int main( void ){
     glfwSetCursorPos(window, 1024/2, 768/2);
 
     // Dark blue background
-    // glClearColor(0.8f, 0.8f, 0.8f, 0.0f);
-    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClearColor(0.8f, 0.8f, 0.8f, 0.0f);
+    // glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 
     // Enable depth test
     glEnable(GL_DEPTH_TEST);
@@ -329,28 +398,36 @@ int main( void ){
     glUseProgram(programID);
     GLuint LightID = glGetUniformLocation(programID, "LightPosition_worldspace");
 
+    glActiveTexture(GL_TEXTURE3);
+    GLuint heightmapTexture = loadTexture("textures/heightmap-1024x1024.png");
+    glBindTexture(GL_TEXTURE_2D,heightmapTexture);
+    GLuint heightmapID = glGetUniformLocation(programID,"heightmap");
+    glUniform1i(heightmapID, 3);
+
+    GLuint heightScaleID = glGetUniformLocation(programID,"heightScale");
+    glUniform1f(heightScaleID,1.0f);
+
+    int heightmapWidth, heightmapHeight, nrChannels;
+    unsigned char *heightmapData = stbi_load("textures/heightmap-1024x1024.png", &heightmapWidth, &heightmapHeight, &nrChannels, 1);
+
+    std::cout << "width : " << heightmapWidth << " | height : " << heightmapHeight << std::endl;
+
     std::shared_ptr<Scene> scene = std::make_shared<Scene>();
 
-    std::shared_ptr<SNode> soleil = std::make_shared<SNode>("textures/s2.png");
-    std::shared_ptr<SNode> terre = std::make_shared<SNode>("textures/s1.png");
-    std::shared_ptr<SNode> lune = std::make_shared<SNode>("textures/s3.png");
+    std::shared_ptr<SNode> soleil = std::make_shared<SNode>(0,"textures/s2.png");
+    std::shared_ptr<SNode> plan = std::make_shared<SNode>(1,"textures/grass.png");
 
-    // version couleur (sans texture)
-    // std::shared_ptr<SNode> soleil = std::make_shared<SNode>(glm::vec3(1.0f, 0.5f, 0.0f));
-    // std::shared_ptr<SNode> terre = std::make_shared<SNode>(glm::vec3(0.0f, 0.5f, 1.0f));
-    // std::shared_ptr<SNode> lune = std::make_shared<SNode>(glm::vec3(0.5f, 0.5f, 0.5f));
+    soleil->transform.scale = glm::vec3(0.25f);
 
-    terre->transform.scale = glm::vec3(0.4f);
-    terre->transform.position = glm::vec3(3.0f, 0.0f, 0.0f);
-    terre->transform.rotation.x = glm::radians(23.44f);
+    float val_rayon = (soleil->transform.position - (soleil->rayon)*0.25f).length(); 
+    std::cout << "pos soleil : (" << soleil->transform.position.x << "," << soleil->transform.position.y << "," << soleil->transform.position.z << ")" << std::endl;
+    std::cout << "pos rayon : (" << soleil->rayon.x << "," << soleil->rayon.y << "," << soleil->rayon.z << ")" << std::endl;
+    std::cout << "rayon : " << val_rayon << std::endl;
 
-    lune->transform.scale = glm::vec3(0.25f);
-    lune->transform.position = glm::vec3(2.0f, 0.0f, 0.0f);
-    lune->transform.rotation.x = glm::radians(6.68f);
+    soleil->transform.position = glm::vec3(0.0f,1.0f,0.0f);
 
-    scene->racine = soleil;
-    soleil->addFeuille(terre);
-    terre->addFeuille(lune);
+    scene->racine->addFeuille(soleil);
+    scene->racine->addFeuille(plan);
 
     float time = 0.0f;
 
@@ -368,7 +445,18 @@ int main( void ){
 
         // input
         // -----
-        processInput(window);
+        processInput(window,soleil);
+        float terrainHeight = getTerrainHeight(
+            soleil->transform.position.x,
+            soleil->transform.position.z,
+            heightmapData,
+            heightmapWidth, heightmapHeight
+        );
+
+        // Empêcher le soleil de traverser le sol
+        if (soleil->transform.position.y + val_rayon < terrainHeight) {
+            soleil->transform.position.y = terrainHeight + val_rayon;
+        }
 
         if (debugFilaire) {
             glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);  // Vue filaire
@@ -382,31 +470,13 @@ int main( void ){
         // Use our shader
         glUseProgram(programID);
 
-        /****************************************/
-        // glm::mat4 ModelMatrix = glm::mat4(1.0f);
-        // glm::mat4 ViewMatrix = glm::lookAt(
-        //     camera_position,
-        //     camera_position+camera_target,
-        //     camera_up
-        // );
-        // glm::mat4 ProjectionMatrix = glm::perspective(glm::radians(angle_perspective),(float)SCR_WIDTH / (float)SCR_HEIGHT,0.1f,100.0f);
-        // MVP = ProjectionMatrix*ViewMatrix*ModelMatrix;
-        // glUniformMatrix4fv(MatrixID,1,GL_FALSE,&MVP[0][0]);
-        /****************************************/
-
         scene->draw(programID);
 
-        terre->transform.position.x = cos(time * 1.0f) * 3.0f;
-        terre->transform.position.z = sin(time * 1.0f) * 3.0f;
 
-        lune->transform.position.x = cos(time * 2.0f) * 2.0f;
-        lune->transform.position.z = sin(time * 2.0f) * 2.0f;
-
-        soleil->transform.rotation.y += glm::radians(5.0f * deltaTime);
-        terre->transform.rotation.y += glm::radians(6.5f * deltaTime);
-        lune->transform.rotation.y += glm::radians(4.0f * deltaTime);
 
         scene->update(deltaTime);
+
+        // std::cout << "Current pos : (" << soleil->transform.position.x << "," << soleil->transform.position.y << "," << soleil->transform.position.z << ")" << std::endl;
 
         // Swap buffers
         glfwSwapBuffers(window);
@@ -418,10 +488,6 @@ int main( void ){
     while( glfwGetKey(window, GLFW_KEY_ESCAPE ) != GLFW_PRESS &&
            glfwWindowShouldClose(window) == 0 );
 
-    // Cleanup VBO and shader
-    // glDeleteBuffers(1,&vertexbuffer_plan);
-    // glDeleteBuffers(1,&elementbuffer_plan);
-    // glDeleteBuffers(1,&uvbuffer);
     glDeleteProgram(programID);
     glDeleteVertexArrays(1,&VertexArrayID);
 
@@ -433,39 +499,40 @@ int main( void ){
 
 // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
 // ---------------------------------------------------------------------------------------------------------
-void processInput(GLFWwindow *window){
+void processInput(GLFWwindow *window, std::shared_ptr<SNode> soleil){
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
 
     float cameraSpeed = 5.0 * deltaTime;
-    if(glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS){
+    if(glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS)
         camera_position += cameraSpeed * camera_target;
-        // std::cout << "forward" << std::endl;
-    }
-    if(glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS){
+    if(glfwGetKey(window, GLFW_KEY_X) == GLFW_PRESS)
         camera_position -= cameraSpeed * camera_target;
-        // std::cout << "backward" << std::endl;
-    }
-    if(glfwGetKey(window,GLFW_KEY_A) == GLFW_PRESS){
+    if(glfwGetKey(window,GLFW_KEY_A) == GLFW_PRESS)
         camera_position -= glm::normalize(glm::cross(camera_target,camera_up))*cameraSpeed;
-        // std::cout << "gauche" << std::endl;
-    }
-    if(glfwGetKey(window,GLFW_KEY_W) == GLFW_PRESS){
+    if(glfwGetKey(window,GLFW_KEY_W) == GLFW_PRESS)
         camera_position += cameraSpeed * camera_up;
-        // std::cout << "haut" << std::endl;
-    }
-    if(glfwGetKey(window,GLFW_KEY_D) == GLFW_PRESS){
+    if(glfwGetKey(window,GLFW_KEY_D) == GLFW_PRESS)
         camera_position += glm::normalize(glm::cross(camera_target,camera_up))*cameraSpeed;
-        // std::cout << "droite" << std::endl;
-    }
-    if(glfwGetKey(window,GLFW_KEY_S) == GLFW_PRESS){
+    if(glfwGetKey(window,GLFW_KEY_S) == GLFW_PRESS)
         camera_position -= cameraSpeed * camera_up;
-        // std::cout << "bas" << std::endl;
-    }
-    if(glfwGetKey(window,GLFW_KEY_V) == GLFW_PRESS){
+    if(glfwGetKey(window,GLFW_KEY_V) == GLFW_PRESS)
         debugFilaire = !debugFilaire;
-    }
+
     /****************************************/
+
+    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) 
+        soleil->transform.position -= glm::vec3(0.0f, 0.0f, 0.05f);
+    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) 
+        soleil->transform.position += glm::vec3(0.0f, 0.0f, 0.05f);
+    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) 
+        soleil->transform.position -= glm::vec3(0.05f, 0.0f, 0.0f);
+    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) 
+        soleil->transform.position += glm::vec3(0.05f, 0.0f, 0.0f);
+    if (glfwGetKey(window, GLFW_KEY_C) == GLFW_PRESS) 
+        soleil->transform.position -= glm::vec3(0.0f, 0.05f, 0.0f);
+    if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) 
+        soleil->transform.position += glm::vec3(0.0f, 0.05f, 0.0f);
 }
 
 // glfw: whenever the window size changed (by OS or user resize) this callback function executes
