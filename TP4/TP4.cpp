@@ -196,9 +196,6 @@ float getTerrainHeight(float x, float z, const std::vector<glm::vec3>& vertices,
     return u*(v0.y + height0*1.9) + v*(v1.y + height1*1.9) + w *(v2.y + height2*1.9);
 }
 
-
-
-
 /*******************************************************************************/
 
 class Transform{
@@ -223,138 +220,195 @@ class SNode{
 public:
     Transform transform;
     std::vector<std::shared_ptr<SNode>> feuilles;
-    GLuint vao,vbo,ibo,textureID;
-    size_t indexCPT;
+    GLuint vao = 0, vbo = 0, ibo = 0, textureID = 0;
+    GLuint uvVBO = 0;
+    size_t indexCPT = 0;
     glm::vec3 color;
-    int type_objet;
-    glm::vec3 rayon;
+    int type_objet = 0;
+
+    const char* low;
+    const char* high;
 
     std::vector<glm::vec3> vertices;
     std::vector<glm::vec2> uvs;
     std::vector<unsigned short> indices;
+    std::vector<std::vector<unsigned short>> triangles;
 
-    SNode(int obj,const char* texturePath) {
+    // Constructeurs
+    SNode(int obj,const char* texturePath){
         type_objet = obj;
         buffers();
         textureID = loadTexture(texturePath);
     }
 
-    // Ancienne version sans texture (couleur)
-    SNode(int obj, glm::vec3 nodeColor) : color(nodeColor) {
+    SNode(int obj,const char* texturePath,std::vector<const char*> modelesPath){
+        type_objet = obj;
+        std::cout <<"path : " << modelesPath[0] << ";" << modelesPath[1]<<std::endl;
+        low = modelesPath[1];
+        high = modelesPath[0];
+        // std::cout <<"modeles 1 : " << low <<std::endl;
+        // std::cout <<"modeles 0 : " << high <<std::endl;
+        // loadOFF(modeles[0],vertices,indices,triangles);
+        buffers();
+        textureID = loadTexture(texturePath);
+    }
+
+    SNode(int obj,glm::vec3 nodeColor): color(nodeColor){
         type_objet = obj;
         buffers();
     }
 
-    SNode(){}
+    SNode() {}
 
     void buffers() {
-        vertices.clear();
-        uvs.clear();
-        indices.clear();
-        std::vector<std::vector<unsigned short>> triangles;
+        // vertices.clear();
+        // uvs.clear();
+        // indices.clear();
         
-        switch(type_objet) {
+        switch(type_objet){
             case 1:
-                plan(vertices,uvs,indices);
+                plan(vertices, uvs, indices); // Plan
+                break;
+            case 2:
+                // loadOFF(modeles[0], vertices, indices, triangles);
+                calculateUVSphere(vertices, uvs);
                 break;
             default:
-                loadOFF("modeles/sphere2.off",vertices,indices,triangles);
-                rayon = vertices[0];
+                loadOFF("modeles/sphere2.off", vertices, indices, triangles);
                 calculateUVSphere(vertices, uvs);
                 break;
         }
 
-        glGenVertexArrays(1, &vao);
-        glBindVertexArray(vao);
+        // std::cout << "Vertices size: " << vertices.size() << std::endl;
+        // std::cout << "UVs size: " << uvs.size() << std::endl;
+        // std::cout << "Indices size: " << indices.size() << std::endl;
 
-        glGenBuffers(1, &vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
-        glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(glm::vec3), &vertices[0], GL_STATIC_DRAW);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), (void*)0);
-        glEnableVertexAttribArray(0);
+        // if(vao == 0){
+            glGenVertexArrays(1,&vao);
+            glBindVertexArray(vao);
+        // }
 
-        GLuint uvVBO;
-        glGenBuffers(1, &uvVBO);
-        glBindBuffer(GL_ARRAY_BUFFER, uvVBO);
-        glBufferData(GL_ARRAY_BUFFER, uvs.size() * sizeof(glm::vec2), &uvs[0], GL_STATIC_DRAW);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(glm::vec2), (void*)0);
-        glEnableVertexAttribArray(1);
+        // if(vbo == 0){
+            glGenBuffers(1,&vbo);
+            glBindBuffer(GL_ARRAY_BUFFER,vbo);
+            glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(glm::vec3),&vertices[0],GL_STATIC_DRAW);
+            glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(glm::vec3),(void*)0);
+            glEnableVertexAttribArray(0);
+        // }
 
-        glGenBuffers(1, &ibo);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ibo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned short), &indices[0], GL_STATIC_DRAW);
-        glBindVertexArray(0);
+        // GLuint uvVBO;
+        // if(uvVBO == 0){
+            glGenBuffers(1,&uvVBO);
+            glBindBuffer(GL_ARRAY_BUFFER,uvVBO);
+            glBufferData(GL_ARRAY_BUFFER,uvs.size()*sizeof(glm::vec2),&uvs[0],GL_STATIC_DRAW);
+            glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,sizeof(glm::vec2),(void*)0);
+            glEnableVertexAttribArray(1);
+        // }
+
+        // if(ibo == 0){
+            glGenBuffers(1,&ibo);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ibo);
+            glBufferData(GL_ELEMENT_ARRAY_BUFFER,indices.size()*sizeof(unsigned short),&indices[0],GL_STATIC_DRAW);
+        // }
+
         indexCPT = indices.size();
+        glBindVertexArray(0);
     }
 
-    void addFeuille(std::shared_ptr<SNode> feuille){
+    void addFeuille(std::shared_ptr<SNode> feuille) {
         feuilles.push_back(feuille);
     }
 
-    virtual void update(float deltaTime){
-        for(auto &feuille: feuilles){
+    virtual void update(float deltaTime) {
+        if(type_objet == 2){
+            static float distance_avant = glm::distance(camera_position,transform.position);
+            float distance = glm::distance(camera_position,transform.position);
+
+            static float timer = 0.0f;
+            static const float reloadInterval = 0.5f;
+            timer += deltaTime;
+
+            if(timer >= reloadInterval && fabs(distance-distance_avant) > 0.5f){
+                distance_avant = distance;
+                timer = 0.0f;
+
+                vertices.clear();
+                uvs.clear();
+                indices.clear();
+    
+                if (distance > 2.0f) {
+                    // std::cout << "affichage du modele low" << std::endl;
+                    loadOFF(low, vertices, indices, triangles);
+                    buffers();
+                } else{
+                    // std::cout << "affichage du modele high" << std::endl;
+                    loadOFF(high, vertices, indices, triangles);
+                    buffers();
+                }
+            }
+        }
+        
+        
+        for (auto& feuille : feuilles) {
             feuille->update(deltaTime);
         }
     }
 
-    virtual void draw(GLuint shaderProgram,const glm::mat4 &brancheMatrix,const glm::vec3 &branchePos){
-        glm::mat4 ModelMatrix = brancheMatrix*transform.getMatrice();
+    virtual void draw(GLuint shaderProgram, const glm::mat4& brancheMatrix, const glm::vec3& branchePos) {
+        glm::mat4 ModelMatrix = brancheMatrix * transform.getMatrice();
         
         glUseProgram(shaderProgram);
 
         glm::mat4 ViewMatrix = glm::lookAt(
             camera_position,
-            camera_position+camera_target,
+            camera_position + camera_target,
             camera_up
         );
-        glm::mat4 ProjectionMatrix = glm::perspective(glm::radians(angle_perspective),(float)SCR_WIDTH / (float)SCR_HEIGHT,0.1f,100.0f);
+        glm::mat4 ProjectionMatrix = glm::perspective(
+            glm::radians(angle_perspective),
+            (float)SCR_WIDTH / (float)SCR_HEIGHT,
+            0.1f,
+            100.0f
+        );
 
-        MVP = ProjectionMatrix*ViewMatrix*ModelMatrix;
+        MVP = ProjectionMatrix * ViewMatrix * ModelMatrix;
         glUniformMatrix4fv(MatrixID,1,GL_FALSE,&MVP[0][0]);
 
-        GLuint isTerrainID = glGetUniformLocation(shaderProgram, "isTerrain");
-        if (type_objet == 1) {
-            glUniform1i(isTerrainID, 1);
-        } else {
-            glUniform1i(isTerrainID, 0);
-        }
+        GLuint isTerrainID = glGetUniformLocation(shaderProgram,"isTerrain");
+        glUniform1i(isTerrainID,(type_objet == 1) ? 1 : 0);
 
-        // Ancienne version sans texture (couleur)
-        GLuint colorLocation = glGetUniformLocation(shaderProgram, "objColor");
-        glUniform3fv(colorLocation, 1, &color[0]);
+        GLuint colorLocation = glGetUniformLocation(shaderProgram,"objColor");
+        glUniform3fv(colorLocation,1,&color[0]);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, textureID);
-        GLuint textureLocation = glGetUniformLocation(shaderProgram, "texture1");
+        GLuint textureLocation = glGetUniformLocation(shaderProgram,"texture1");
         if(textureLocation == -1){
             std::cerr << "Erreur : Uniform texture1 introuvable" << std::endl;
         }
-        glUniform1i(textureLocation, 0);
+        glUniform1i(textureLocation,0);
 
         glBindVertexArray(vao);
         glEnableVertexAttribArray(0);
         glBindBuffer(GL_ARRAY_BUFFER,vbo);
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+        glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,0,(void*)0);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ibo);
-
-        glDrawElements(
-            GL_TRIANGLES,
+        
+        glDrawElements(GL_TRIANGLES,
             indexCPT,
             GL_UNSIGNED_SHORT,
             (void*)0
         );
-        glBindVertexArray(0);
 
-        glDisableVertexAttribArray(0);
         glBindVertexArray(0);
+        glDisableVertexAttribArray(0);
 
         for(auto &feuille: feuilles){
             glm::vec3 worldPos = branchePos + transform.position;
             feuille->draw(shaderProgram,ModelMatrix,worldPos);
         }
     }
-
-};
+}; 
 
 class Scene{
 public:
@@ -463,7 +517,12 @@ int main( void ){
 
     std::shared_ptr<Scene> scene = std::make_shared<Scene>();
 
-    std::shared_ptr<SNode> soleil = std::make_shared<SNode>(0,"textures/s2.png");
+    // std::shared_ptr<SNode> soleil = std::make_shared<SNode>(0,"textures/s2.png");
+    std::shared_ptr<SNode> soleil = std::make_shared<SNode>(
+        2,
+        "textures/s2.png",
+        std::vector<const char*>{"modeles/sphere2.off","modeles/sphere.off"}
+    );
     std::shared_ptr<SNode> plan = std::make_shared<SNode>(1,"textures/grass.png");
 
     soleil->transform.scale = glm::vec3(0.25f);
