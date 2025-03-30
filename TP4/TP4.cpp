@@ -143,16 +143,60 @@ void plan(std::vector<glm::vec3> &vertices,std::vector<glm::vec2> &uvs,std::vect
     }
 }
 
-float getTerrainHeight(float x, float z, unsigned char* heightmapData, int width, int height){
-    // float u = (x + 1.0f) / 10.0f;
-    // float v = (z + 1.0f) / 10.0f;
+float getTerrainHeight(float x, float z, const std::vector<glm::vec3>& vertices, const std::vector<unsigned short>& indices, const unsigned char* heightmapData, int heightmapWidth, int heightmapHeight) {
+    float taille = 10.0f;
+    float m = taille / 2.0f;
+    float pas = taille / (float)sommets;
 
-    int texX = static_cast<int>(x * (width/102.4 - 1));
-    int texY = static_cast<int>(z * (height/102.4 - 1));
+    int i = (z + m) / pas;
+    int j = (x + m) / pas;
 
-    unsigned char heightValue = heightmapData[texY * width + texX];
-    return static_cast<float>(heightValue) / 255.0f * 2.0f;
+    if (i < 0 || i >= sommets - 1 || j < 0 || j >= sommets - 1) {
+        return 0.0f;
+    }
+
+    int topleft = i * (sommets + 1) + j;
+    int topright = topleft + 1;
+    int bottomleft = (i + 1) * (sommets + 1) + j;
+    int bottomright = bottomleft + 1;
+
+    glm::vec3 v0 = vertices[topleft];
+    glm::vec3 v1, v2;
+
+    if ((x - v0.x) + (z - v0.z) < (bottomright - topleft)) {
+        v1 = vertices[bottomleft];
+        v2 = vertices[topright];
+    } else {
+        v1 = vertices[bottomright];
+        v2 = vertices[topright];
+    }
+
+    // Barycentriques
+    glm::vec3 v0v1 = v1 - v0;
+    glm::vec3 v0v2 = v2 - v0;
+    glm::vec3 p = glm::vec3(x, 0.0f, z);
+    glm::vec3 v0p = p - v0;
+
+    float d00 = glm::dot(v0v1,v0v1);
+    float d01 = glm::dot(v0v1,v0v2);
+    float d11 = glm::dot(v0v2,v0v2);
+    float d20 = glm::dot(v0p,v0v1);
+    float d21 = glm::dot(v0p,v0v2);
+
+    float denom = d00*d11 - d01*d01;
+    float v = (d11*d20 - d01*d21) / denom;
+    float w = (d00*d21 - d01*d20) / denom;
+    float u = 1.0f - v - w;
+
+    // Interpolation de la hauteur avec la heightmap
+    float height0 = heightmapData[((int)(v0.z + m) * heightmapWidth + (int)(v0.x + m))] / 255.0f;
+    float height1 = heightmapData[((int)(v1.z + m) * heightmapWidth + (int)(v1.x + m))] / 255.0f;
+    float height2 = heightmapData[((int)(v2.z + m) * heightmapWidth + (int)(v2.x + m))] / 255.0f;
+
+    return u*(v0.y + height0*1.9) + v*(v1.y + height1*1.9) + w *(v2.y + height2*1.9);
 }
+
+
 
 
 /*******************************************************************************/
@@ -185,6 +229,10 @@ public:
     int type_objet;
     glm::vec3 rayon;
 
+    std::vector<glm::vec3> vertices;
+    std::vector<glm::vec2> uvs;
+    std::vector<unsigned short> indices;
+
     SNode(int obj,const char* texturePath) {
         type_objet = obj;
         buffers();
@@ -200,11 +248,11 @@ public:
     SNode(){}
 
     void buffers() {
-
-        std::vector<glm::vec3> vertices;
-        std::vector<glm::vec2> uvs;
-        std::vector<unsigned short> indices;
+        vertices.clear();
+        uvs.clear();
+        indices.clear();
         std::vector<std::vector<unsigned short>> triangles;
+        
         switch(type_objet) {
             case 1:
                 plan(vertices,uvs,indices);
@@ -305,6 +353,7 @@ public:
             feuille->draw(shaderProgram,ModelMatrix,worldPos);
         }
     }
+
 };
 
 class Scene{
@@ -419,10 +468,10 @@ int main( void ){
 
     soleil->transform.scale = glm::vec3(0.25f);
 
-    float val_rayon = (soleil->transform.position - (soleil->rayon)*0.25f).length(); 
-    std::cout << "pos soleil : (" << soleil->transform.position.x << "," << soleil->transform.position.y << "," << soleil->transform.position.z << ")" << std::endl;
-    std::cout << "pos rayon : (" << soleil->rayon.x << "," << soleil->rayon.y << "," << soleil->rayon.z << ")" << std::endl;
-    std::cout << "rayon : " << val_rayon << std::endl;
+    // float val_rayon = (soleil->transform.position - (soleil->rayon)*0.25f).length(); 
+    // std::cout << "pos soleil : (" << soleil->transform.position.x << "," << soleil->transform.position.y << "," << soleil->transform.position.z << ")" << std::endl;
+    // std::cout << "pos rayon : (" << soleil->rayon.x << "," << soleil->rayon.y << "," << soleil->rayon.z << ")" << std::endl;
+    // std::cout << "rayon : " << val_rayon << std::endl;
 
     soleil->transform.position = glm::vec3(0.0f,1.0f,0.0f);
 
@@ -434,6 +483,9 @@ int main( void ){
     // For speed computation
     double lastTime = glfwGetTime();
     int nbFrames = 0;
+
+    std::vector<glm::vec3> terrainVertices = plan->vertices;
+    std::vector<unsigned short> terrainIndices = plan->indices;
 
     do{
         // Measure speed
@@ -449,13 +501,17 @@ int main( void ){
         float terrainHeight = getTerrainHeight(
             soleil->transform.position.x,
             soleil->transform.position.z,
+            terrainVertices, 
+            terrainIndices,
             heightmapData,
-            heightmapWidth, heightmapHeight
+            heightmapWidth,
+            heightmapHeight
         );
+        
 
         // Empêcher le soleil de traverser le sol
-        if (soleil->transform.position.y + val_rayon < terrainHeight) {
-            soleil->transform.position.y = terrainHeight + val_rayon;
+        if (soleil->transform.position.y < terrainHeight) {
+            soleil->transform.position.y = terrainHeight;
         }
 
         if (debugFilaire) {
