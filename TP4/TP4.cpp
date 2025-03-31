@@ -224,7 +224,7 @@ public:
 
     const char* low;
     const char* high;
-    const char* current_modele = nullptr;
+    const char* current_modele;
 
     std::vector<glm::vec3> vertices;
     std::vector<glm::vec2> uvs;
@@ -240,10 +240,10 @@ public:
 
     SNode(int obj,const char* texturePath,std::vector<const char*> modelesPath){
         type_objet = obj;
-        std::cout <<"path : " << modelesPath[0] << ";" << modelesPath[1]<<std::endl;
         low = modelesPath[1];
         high = modelesPath[0];
-        current_modele = nullptr;
+        current_modele = low;
+        loadOFF(current_modele,vertices,indices,triangles);
         buffers();
         textureID = loadTexture(texturePath);
     }
@@ -253,19 +253,19 @@ public:
         buffers();
     }
 
-    SNode() {}
+    SNode(){}
 
-    void buffers() {
+    void buffers(){
         switch(type_objet){
             case 1:
-                plan(vertices, uvs, indices); // Plan
+                plan(vertices,uvs,indices); // Plan
                 break;
             case 2:
-                calculateUVSphere(vertices, uvs);
+                calculateUVSphere(vertices,uvs);
                 break;
             default:
-                loadOFF("modeles/sphere2.off", vertices, indices, triangles);
-                calculateUVSphere(vertices, uvs);
+                loadOFF("modeles/sphere2.off",vertices,indices,triangles);
+                calculateUVSphere(vertices,uvs);
                 break;
         }
 
@@ -292,11 +292,11 @@ public:
         glBindVertexArray(0);
     }
 
-    void addFeuille(std::shared_ptr<SNode> feuille) {
+    void addFeuille(std::shared_ptr<SNode> feuille){
         feuilles.push_back(feuille);
     }
 
-    virtual void update(float deltaTime) {
+    virtual void update(float deltaTime){
         if(type_objet == 2){ // Si notre objet possede un LOD
             float distance = glm::distance(camera_position,transform.position);
 
@@ -311,12 +311,12 @@ public:
             }
         }
         
-        for (auto& feuille : feuilles) {
+        for(auto& feuille : feuilles){
             feuille->update(deltaTime);
         }
     }
 
-    virtual void draw(GLuint shaderProgram, const glm::mat4& brancheMatrix, const glm::vec3& branchePos) {
+    virtual void draw(GLuint shaderProgram, const glm::mat4& brancheMatrix, const glm::vec3& branchePos){
         glm::mat4 ModelMatrix = brancheMatrix * transform.getMatrice();
         
         glUseProgram(shaderProgram);
