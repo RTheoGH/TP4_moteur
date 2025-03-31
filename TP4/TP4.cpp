@@ -193,7 +193,7 @@ float getTerrainHeight(float x, float z, const std::vector<glm::vec3>& vertices,
     float height1 = heightmapData[((int)(v1.z + m) * heightmapWidth + (int)(v1.x + m))] / 255.0f;
     float height2 = heightmapData[((int)(v2.z + m) * heightmapWidth + (int)(v2.x + m))] / 255.0f;
 
-    return u*(v0.y + height0*1.9) + v*(v1.y + height1*1.9) + w *(v2.y + height2*1.9);
+    return u*(v0.y + height0*1.75) + v*(v1.y + height1*1.75) + w *(v2.y + height2*1.75);
 }
 
 /*******************************************************************************/
@@ -228,6 +228,7 @@ public:
 
     const char* low;
     const char* high;
+    const char* current_modele = nullptr;
 
     std::vector<glm::vec3> vertices;
     std::vector<glm::vec2> uvs;
@@ -246,9 +247,7 @@ public:
         std::cout <<"path : " << modelesPath[0] << ";" << modelesPath[1]<<std::endl;
         low = modelesPath[1];
         high = modelesPath[0];
-        // std::cout <<"modeles 1 : " << low <<std::endl;
-        // std::cout <<"modeles 0 : " << high <<std::endl;
-        // loadOFF(modeles[0],vertices,indices,triangles);
+        current_modele = nullptr;
         buffers();
         textureID = loadTexture(texturePath);
     }
@@ -261,16 +260,11 @@ public:
     SNode() {}
 
     void buffers() {
-        // vertices.clear();
-        // uvs.clear();
-        // indices.clear();
-        
         switch(type_objet){
             case 1:
                 plan(vertices, uvs, indices); // Plan
                 break;
             case 2:
-                // loadOFF(modeles[0], vertices, indices, triangles);
                 calculateUVSphere(vertices, uvs);
                 break;
             default:
@@ -279,37 +273,24 @@ public:
                 break;
         }
 
-        // std::cout << "Vertices size: " << vertices.size() << std::endl;
-        // std::cout << "UVs size: " << uvs.size() << std::endl;
-        // std::cout << "Indices size: " << indices.size() << std::endl;
+        glGenVertexArrays(1,&vao);
+        glBindVertexArray(vao);
 
-        // if(vao == 0){
-            glGenVertexArrays(1,&vao);
-            glBindVertexArray(vao);
-        // }
+        glGenBuffers(1,&vbo);
+        glBindBuffer(GL_ARRAY_BUFFER,vbo);
+        glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(glm::vec3),&vertices[0],GL_STATIC_DRAW);
+        glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(glm::vec3),(void*)0);
+        glEnableVertexAttribArray(0);
 
-        // if(vbo == 0){
-            glGenBuffers(1,&vbo);
-            glBindBuffer(GL_ARRAY_BUFFER,vbo);
-            glBufferData(GL_ARRAY_BUFFER,vertices.size()*sizeof(glm::vec3),&vertices[0],GL_STATIC_DRAW);
-            glVertexAttribPointer(0,3,GL_FLOAT,GL_FALSE,sizeof(glm::vec3),(void*)0);
-            glEnableVertexAttribArray(0);
-        // }
+        glGenBuffers(1,&uvVBO);
+        glBindBuffer(GL_ARRAY_BUFFER,uvVBO);
+        glBufferData(GL_ARRAY_BUFFER,uvs.size()*sizeof(glm::vec2),&uvs[0],GL_STATIC_DRAW);
+        glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,sizeof(glm::vec2),(void*)0);
+        glEnableVertexAttribArray(1);
 
-        // GLuint uvVBO;
-        // if(uvVBO == 0){
-            glGenBuffers(1,&uvVBO);
-            glBindBuffer(GL_ARRAY_BUFFER,uvVBO);
-            glBufferData(GL_ARRAY_BUFFER,uvs.size()*sizeof(glm::vec2),&uvs[0],GL_STATIC_DRAW);
-            glVertexAttribPointer(1,2,GL_FLOAT,GL_FALSE,sizeof(glm::vec2),(void*)0);
-            glEnableVertexAttribArray(1);
-        // }
-
-        // if(ibo == 0){
-            glGenBuffers(1,&ibo);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ibo);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER,indices.size()*sizeof(unsigned short),&indices[0],GL_STATIC_DRAW);
-        // }
+        glGenBuffers(1,&ibo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,ibo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER,indices.size()*sizeof(unsigned short),&indices[0],GL_STATIC_DRAW);
 
         indexCPT = indices.size();
         glBindVertexArray(0);
@@ -320,34 +301,19 @@ public:
     }
 
     virtual void update(float deltaTime) {
-        if(type_objet == 2){
-            static float distance_avant = glm::distance(camera_position,transform.position);
+        if(type_objet == 2){ // Si notre objet possede un LOD
             float distance = glm::distance(camera_position,transform.position);
 
-            static float timer = 0.0f;
-            static const float reloadInterval = 0.5f;
-            timer += deltaTime;
+            // Evite de recharger le modele si celui-ci est déjà chargé
+            const char* nouveau_modele = (distance > 5.0f) ? low : high;
 
-            if(timer >= reloadInterval && fabs(distance-distance_avant) > 0.5f){
-                distance_avant = distance;
-                timer = 0.0f;
-
-                vertices.clear();
-                uvs.clear();
-                indices.clear();
-    
-                if (distance > 2.0f) {
-                    // std::cout << "affichage du modele low" << std::endl;
-                    loadOFF(low, vertices, indices, triangles);
-                    buffers();
-                } else{
-                    // std::cout << "affichage du modele high" << std::endl;
-                    loadOFF(high, vertices, indices, triangles);
-                    buffers();
-                }
+            if(current_modele != nouveau_modele){
+                current_modele = nouveau_modele;
+                loadOFF(current_modele,vertices,indices,triangles);
+                buffers();
+                std::cout << "Changement de modele : " << current_modele << std::endl;
             }
         }
-        
         
         for (auto& feuille : feuilles) {
             feuille->update(deltaTime);
@@ -517,7 +483,7 @@ int main( void ){
 
     std::shared_ptr<Scene> scene = std::make_shared<Scene>();
 
-    // std::shared_ptr<SNode> soleil = std::make_shared<SNode>(0,"textures/s2.png");
+    // std::shared_ptr<SNode> soleil = std::make_shared<SNode>(0,"textures/s2.png"); // Sans LOD
     std::shared_ptr<SNode> soleil = std::make_shared<SNode>(
         2,
         "textures/s2.png",
@@ -526,12 +492,6 @@ int main( void ){
     std::shared_ptr<SNode> plan = std::make_shared<SNode>(1,"textures/grass.png");
 
     soleil->transform.scale = glm::vec3(0.25f);
-
-    // float val_rayon = (soleil->transform.position - (soleil->rayon)*0.25f).length(); 
-    // std::cout << "pos soleil : (" << soleil->transform.position.x << "," << soleil->transform.position.y << "," << soleil->transform.position.z << ")" << std::endl;
-    // std::cout << "pos rayon : (" << soleil->rayon.x << "," << soleil->rayon.y << "," << soleil->rayon.z << ")" << std::endl;
-    // std::cout << "rayon : " << val_rayon << std::endl;
-
     soleil->transform.position = glm::vec3(0.0f,1.0f,0.0f);
 
     scene->racine->addFeuille(soleil);
@@ -567,8 +527,7 @@ int main( void ){
             heightmapHeight
         );
         
-
-        // Empêcher le soleil de traverser le sol
+        // Empêche le soleil de traverser le sol
         if (soleil->transform.position.y < terrainHeight) {
             soleil->transform.position.y = terrainHeight;
         }
@@ -586,12 +545,7 @@ int main( void ){
         glUseProgram(programID);
 
         scene->draw(programID);
-
-
-
         scene->update(deltaTime);
-
-        // std::cout << "Current pos : (" << soleil->transform.position.x << "," << soleil->transform.position.y << "," << soleil->transform.position.z << ")" << std::endl;
 
         // Swap buffers
         glfwSwapBuffers(window);
@@ -608,7 +562,6 @@ int main( void ){
 
     // Close OpenGL window and terminate GLFW
     glfwTerminate();
-
     return 0;
 }
 
