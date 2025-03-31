@@ -151,10 +151,6 @@ float getTerrainHeight(float x, float z, const std::vector<glm::vec3>& vertices,
     int i = (z + m) / pas;
     int j = (x + m) / pas;
 
-    if (i < 0 || i >= sommets - 1 || j < 0 || j >= sommets - 1) {
-        return 0.0f;
-    }
-
     int topleft = i * (sommets + 1) + j;
     int topright = topleft + 1;
     int bottomleft = (i + 1) * (sommets + 1) + j;
